@@ -1,6 +1,6 @@
 use std::process::Output;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 
 fn execute_command(command: &str, args: &[String]) -> Result<std::process::Output> {
     std::process::Command::new(command)
@@ -14,17 +14,16 @@ fn execute_command(command: &str, args: &[String]) -> Result<std::process::Outpu
         })
 }
 
-fn print_output(output: &Output) -> Result<()> {
+fn print_output(output: &Output) -> Result<i32> {
     if output.status.success() {
         let std_out = std::str::from_utf8(&output.stdout)?;
         print!("{}", std_out);
         let std_err = std::str::from_utf8(&output.stderr)?;
         eprint!("{}", std_err);
+        Ok(output.status.code().unwrap_or(0))
     } else {
-        std::process::exit(1);
+        Ok(output.status.code().unwrap_or(1))
     }
-
-    Ok(())
 }
 
 // Usage: your_docker.sh run <image> <command> <arg1> <arg2> ...
@@ -40,7 +39,6 @@ fn main() -> Result<()> {
     let command_args = &args[4..];
 
     let output = execute_command(command, command_args)?;
-    let _ = print_output(&output);
-
-    Ok(())
+    let exit_code = print_output(&output);
+    std::process::exit(exit_code.unwrap());
 }
