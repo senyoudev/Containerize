@@ -1,30 +1,26 @@
-use std::process::Output;
+use std::process::Stdio;
+use anyhow::{Context, Result};
+use tempfile::tempdir;
+use std::os::unix::fs;
 
-use anyhow::{Context, Ok, Result};
 
-fn execute_command(command: &str, args: &[String]) -> Result<std::process::Output> {
-    std::process::Command::new(command)
+fn execute_command(command: &str, args: &[String]) -> Result<i32> {
+    let status = std::process::Command::new(command)
         .args(args)
-        .output()
+        .stdout(Stdio::inherit()) 
+        .stderr(Stdio::inherit())  
+        .status()  
         .with_context(|| {
             format!(
                 "Tried to run '{}' with arguments {:?}",
                 command, args
             )
-        })
+        })?;
+
+    Ok(status.code().unwrap_or(1))  // Return the exit code
 }
 
-fn print_output(output: &Output) -> Result<i32> {
-    if output.status.success() {
-        let std_out = std::str::from_utf8(&output.stdout)?;
-        print!("{}", std_out);
-        let std_err = std::str::from_utf8(&output.stderr)?;
-        eprint!("{}", std_err);
-        Ok(output.status.code().unwrap_or(0))
-    } else {
-        Ok(output.status.code().unwrap_or(1))
-    }
-}
+
 
 // Usage: your_docker.sh run <image> <command> <arg1> <arg2> ...
 fn main() -> Result<()> {
@@ -38,7 +34,17 @@ fn main() -> Result<()> {
     let command = &args[3];
     let command_args = &args[4..];
 
-    let output = execute_command(command, command_args)?;
-    let exit_code = print_output(&output);
-    std::process::exit(exit_code.unwrap());
+    let tmp_dir = tempdir()?;
+    let to = tmp_dir.path().join(command.strip_prefix("/").unwrap_or(command));
+    std::fs::create_dir_all(to.parent().unwrap())?;
+    std::fs::copy(command, to)?;
+
+    let dev_null = tmp_dir.path().join("dev/null");
+    std::fs::create_dir_all(dev_null.parent().unwrap())?;
+    std::fs::File::create(dev_null)?;
+
+    fs::chroot(tmp_dir.path())?;
+
+    let exit_code = execute_command(&command, command_args)?;
+    std::process::exit(exit_code);
 }
