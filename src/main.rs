@@ -3,6 +3,11 @@ use anyhow::{Context, Result};
 use tempfile::tempdir;
 use std::os::unix::fs;
 
+const CLONE_NEWPID: i32 = 0x20000000;
+
+extern "C" {
+    fn unshare(flags: i32) -> i32;
+}
 
 fn execute_command(command: &str, args: &[String]) -> Result<i32> {
     let status = std::process::Command::new(command)
@@ -17,10 +22,17 @@ fn execute_command(command: &str, args: &[String]) -> Result<i32> {
             )
         })?;
 
-    Ok(status.code().unwrap_or(1))  // Return the exit code
+    Ok(status.code().unwrap_or(1))
 }
 
-
+fn create_pid_namespace() -> Result<()> {
+    unsafe {
+        if unshare(CLONE_NEWPID) == -1 {
+            return Err(anyhow::anyhow!("Failed to unshare PID namespace: {}", std::io::Error::last_os_error()));
+        }
+    }
+    Ok(())
+}
 
 // Usage: your_docker.sh run <image> <command> <arg1> <arg2> ...
 fn main() -> Result<()> {
@@ -43,6 +55,7 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(dev_null.parent().unwrap())?;
     std::fs::File::create(dev_null)?;
 
+    create_pid_namespace()?;
     fs::chroot(tmp_dir.path())?;
 
     let exit_code = execute_command(&command, command_args)?;
